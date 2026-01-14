@@ -1,0 +1,13 @@
+[project]
+name = "rsu-tax-on-sell"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.150.2",
+    "pytest>=9.0.2",
+]
