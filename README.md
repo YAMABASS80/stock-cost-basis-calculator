@@ -11,6 +11,7 @@
 - CSV形式の取引履歴ファイルの読み込み
 - 総平均法による1株あたり取得単価の計算
 - 売却時の取得費の自動計算
+- **為替レートの自動取得**（Yahoo Finance、exchange_rate が空欄の行のみ）
 - CSV形式またはコンソールへの結果出力
 - 包括的なエラーハンドリング
 
@@ -18,6 +19,7 @@
 
 - Python 3.14以上
 - uvパッケージマネージャ
+- インターネット接続（為替レートの自動取得を利用する場合のみ）
 
 ## インストール
 
@@ -45,7 +47,7 @@ uv run python main.py input.csv --output csv --output-file result.csv
 ### コマンドラインオプション
 
 ```
-usage: main.py [-h] [-o {csv,console}] [-f OUTPUT_FILE] input_file
+usage: main.py [-h] [-o {csv,console}] [-f OUTPUT_FILE] [--no-auto-fx] input_file
 
 positional arguments:
   input_file            入力CSVファイルのパス
@@ -56,6 +58,8 @@ options:
                         出力形式 (デフォルト: console)
   -f, --output-file OUTPUT_FILE
                         CSV出力時の出力ファイルパス (出力形式がcsvの場合に必須)
+  --no-auto-fx          為替レートの自動取得を無効にする
+                        (exchange_rate が空欄の行はエラーになります)
 ```
 
 ## 入力CSVフォーマット
@@ -66,9 +70,13 @@ options:
 |-----------|-----|------|-----|
 | transaction_date | string | 取引日（YYYYMMDD形式） | 20240115 |
 | transaction | string | 取引種別（buy/sell） | buy |
-| exchange_rate | string | 為替レート（円/ドル） | 150.50 |
+| exchange_rate | string | 為替レート（円/ドル）。**空欄にすると自動取得** | 150.50 |
 | unit | string | 株数 | 100 |
 | unit_price | string | 1株あたり価格（USD） | 150.25 |
+
+> **注:** `exchange_rate` 列（ヘッダー）は必須ですが、各行の値は空欄にできます。
+> 空欄の行は取引日の USD/JPY レートを Yahoo Finance から自動取得します。
+> 詳しくは[為替レートの自動取得](#為替レートの自動取得)を参照してください。
 
 ### 入力例
 
@@ -80,6 +88,43 @@ transaction_date,transaction,exchange_rate,unit,unit_price
 20240420,buy,149.50,30,158.00
 20240515,sell,151.00,50,162.00
 ```
+
+#### 為替レートを自動取得する入力例
+
+`exchange_rate` を空欄にすると、取引日のレートが自動的に補完されます。
+入力済みの値はそのまま使用され、上書きされません。
+
+```csv
+transaction_date,transaction,exchange_rate,unit,unit_price
+20240115,buy,,100,150.25
+20240220,buy,148.00,50,155.00
+20240315,sell,,80,160.00
+```
+
+## 為替レートの自動取得
+
+`exchange_rate` が空欄の行については、[Yahoo Finance](https://finance.yahoo.com/quote/USDJPY=X/)
+の USD/JPY 日足データから取引日のレートを自動取得します。
+
+### 動作仕様
+
+- **空欄の行のみ**自動取得します。値が入力済みの行はその値をそのまま使用します。
+- 取引日が**土日・祝日**など市場閉場日の場合は、**直前の営業日**の終値レートを採用します。
+- 取得したレートは小数第4位に丸めます（四捨五入）。
+- 取得済みのレートはキャッシュし、API呼び出し回数を抑えます。
+- 外部ライブラリは不要です（Python標準ライブラリの `urllib` のみを使用）。
+
+### 自動取得を無効にする
+
+ネットワークを使わず、空欄をエラーとして扱いたい場合は `--no-auto-fx` を指定します。
+
+```bash
+uv run python main.py input.csv --no-auto-fx
+```
+
+> **免責:** 自動取得される為替レートは Yahoo Finance が提供する市場レートです。
+> 税務申告で用いるべきレート（例: TTM など）とは異なる場合があります。
+> 取得値は参考情報としてご利用いただき、最終的な判断は税理士等の専門家にご確認ください。
 
 ## 出力フォーマット
 
@@ -237,6 +282,7 @@ uv run pytest tests/test_calculator_nta_example.py -v
 │   ├── sorter.py          # 取引ソート
 │   ├── calculator.py      # 取得費計算エンジン
 │   ├── output.py          # 出力フォーマッター
+│   ├── fx_fetcher.py      # 為替レート自動取得（Yahoo Finance）
 │   └── utils.py           # ユーティリティ関数
 ├── tests/
 │   ├── test_calculator_properties.py  # プロパティベーステスト
@@ -251,6 +297,7 @@ uv run pytest tests/test_calculator_nta_example.py -v
 - **FileNotFoundError**: 入力CSVファイルが存在しない
 - **ValidationError**: データ形式が不正（日付、取引種別、数値など）
 - **CalculationError**: 計算エラー（保有株数を超える売却など）
+- **FXFetchError**: 為替レートの自動取得に失敗（ネットワーク障害、該当日のレート欠落など）
 - **ArgumentError**: コマンドライン引数のエラー
 
 エラーメッセージは標準エラー出力に出力され、適切な終了コードが返されます。

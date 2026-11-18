@@ -1,0 +1,4 @@
+transaction_date,transaction,exchange_rate,unit,unit_price
+20240115,buy,,100,100.00
+20240520,buy,155.00,50,120.00
+20240910,sell,,80,130.00

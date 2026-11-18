@@ -11,6 +11,7 @@ from src.csv_reader import CSVReader
 from src.parser import TransactionParser
 from src.calculator import CostBasisCalculator, CalculationError
 from src.output import OutputFormatter
+from src.fx_fetcher import FXFetcher
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -44,6 +45,12 @@ def parse_arguments() -> argparse.Namespace:
         help='CSV出力時の出力ファイルパス (出力形式がcsvの場合に必須)'
     )
     
+    parser.add_argument(
+        '--no-auto-fx',
+        action='store_true',
+        help='為替レートの自動取得を無効にする (exchange_rate が空欄の行はエラーになります)'
+    )
+    
     return parser.parse_args()
 
 
@@ -64,7 +71,10 @@ def main():
         raw_data = reader.read(input_path)
         
         # 2. トランザクションデータをパース
-        parser = TransactionParser()
+        #    exchange_rate が空欄の行は Yahoo Finance から自動取得する
+        #    (--no-auto-fx 指定時は自動取得を無効化)
+        fx_fetcher = None if args.no_auto_fx else FXFetcher()
+        parser = TransactionParser(fx_fetcher=fx_fetcher)
         transactions = parser.parse(raw_data)
         
         # 3. 取得費を計算

@@ -6,14 +6,24 @@ CSV行データをTransactionオブジェクトに変換する。
 
 from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
-from typing import List, Dict, Literal
+from typing import List, Dict, Literal, Optional
 
 from src.models import Transaction
+from src.fx_fetcher import FXFetcher, FXFetchError
 
 
 class TransactionParser:
-    """文字列データをTransactionオブジェクトに変換するクラス"""
-    
+    """文字列データをTransactionオブジェクトに変換するクラス
+
+    Args:
+        fx_fetcher: 為替レート自動取得用のFXFetcher。指定された場合、
+            exchange_rateが空欄の行については取引日のレートを自動取得する。
+            Noneの場合、空欄はエラーとして扱う。
+    """
+
+    def __init__(self, fx_fetcher: Optional[FXFetcher] = None):
+        self.fx_fetcher = fx_fetcher
+
     def parse(self, raw_data: List[Dict[str, str]]) -> List[Transaction]:
         """生データをTransactionオブジェクトに変換
         
@@ -57,10 +67,10 @@ class TransactionParser:
         # transaction の検証
         transaction_type = self._parse_transaction_type(row['transaction'])
         
-        # exchange_rate の検証
-        exchange_rate = self._parse_positive_decimal(
-            row['exchange_rate'], 
-            'exchange_rate'
+        # exchange_rate の検証（空欄の場合は自動取得を試みる）
+        exchange_rate = self._resolve_exchange_rate(
+            row.get('exchange_rate'),
+            transaction_date
         )
         
         # unit の検証
@@ -80,6 +90,45 @@ class TransactionParser:
             unit_price=unit_price
         )
     
+    def _resolve_exchange_rate(
+        self, raw_value: Optional[str], transaction_date: date
+    ) -> Decimal:
+        """為替レートを解決する
+
+        値が入力されていればそれを検証して返す。空欄の場合は
+        FXFetcherが設定されていれば取引日のレートを自動取得する。
+
+        Args:
+            raw_value: CSVのexchange_rate列の値（空欄やNoneの場合あり）
+            transaction_date: 取引日（自動取得に使用）
+
+        Returns:
+            為替レート（Decimal）
+
+        Raises:
+            ValueError: 値が不正、または空欄かつ自動取得できない場合
+        """
+        value_str = (raw_value or "").strip()
+
+        # 値が入力されている場合は従来通り検証
+        if value_str != "":
+            return self._parse_positive_decimal(value_str, 'exchange_rate')
+
+        # 空欄かつFXFetcher未設定の場合はエラー
+        if self.fx_fetcher is None:
+            raise ValueError(
+                "[ERROR] ValidationError: exchange_rate is empty "
+                "(為替レートの自動取得が無効です)"
+            )
+
+        # Yahoo Finance から取引日のレートを自動取得
+        try:
+            return self.fx_fetcher.get_rate(transaction_date)
+        except FXFetchError as e:
+            raise ValueError(
+                f"[ERROR] FXFetchError: {e}"
+            ) from e
+
     def _parse_date(self, date_str: str) -> date:
         """日付文字列をdateオブジェクトに変換
         
